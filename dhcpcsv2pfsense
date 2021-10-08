@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Merge DHCP static assignments .csv data into pfSense DHCP Server config file.
+"""
+
+__version__ = "V0.0 211007"
+
+
+#==========================================================
+#
+#  Chris Nelson, 2021
+#
+# V0.0 211007  New
+#
+# Changes pending
+#   
+#==========================================================
+
+import argparse
+import sys
+import os.path
+import io
+import glob
+import csv
+import logging
+
+# Configs / Constants
+PY_MIN_VERSION = 3.6
+
+
+py_version = float(sys.version_info.major) + float(sys.version_info.minor)/10
+if py_version < PY_MIN_VERSION:
+    print (f"Current Python version {py_version} is less than minimum required version {PY_MIN_VERSION} - Aborting")
+    sys.exit()
+
+
+def main():
+
+    staticmap_template = get_template()
+
+
+    with io.open(args.CSV_master_list, newline='', encoding="utf-8") as csvfile:
+        csv_table = csv.DictReader(csvfile, dialect="excel")
+
+        # Check that CSV file column names map to <staticmap> fields
+        valid_columns = []
+        for colname in csv_table.fieldnames:
+            if colname not in staticmap_template:
+                logging.warning(f"Warning:  CSV file column name {colname} not found in the <staticmap> template.  This column will be ignored.")
+            else:
+                valid_columns.append(colname)
+
+        with io.open (in_config_file, "r", encoding="utf-8") as ifile:
+            with io.open (out_config_file, "wt", encoding="utf-8") as ofile:
+
+                # Copy the backup file preamble
+                inline = ifile.readline()
+                while "<staticmap>" not in inline:
+                    ofile.write(inline)
+                    inline = ifile.readline()
+
+                # Create <staticmap> blocks per the CSV rows
+                numrows = 0
+                for row in csv_table:
+                    logging.debug(row)
+
+                    if row[valid_columns[0]] != "":  # Allow for blank rows
+                        numrows += 1
+                        temp_template = ""
+                        for line in staticmap_template.split("\n"):
+                            lineout = line + "\n"
+                            for col in valid_columns:
+                                if f"<{col}>" in line:
+                                    lineout = f"\t\t\t<{col}>{row[col]}</{col}>\n"
+                            temp_template += lineout
+                        logging.debug(temp_template)
+
+                        ofile.write(temp_template)
+
+                logging.info(f"Processed {numrows} DHCP static assignments.")
+
+                # Output the tail end of the config file (hard coded)
+                ofile.write("\t</lan>\n</dhcpd>\n")
+
+
+def get_template():
+    """ Extract the <staticmap> template from the input .xml file.
+    """
+    template = ""
+    with io.open(in_config_file, "r", encoding="utf-8") as ifile:
+        line = ifile.readline()
+        while "<staticmap>" not in line:
+            line = ifile.readline()
+        while "</staticmap>" not in line:
+            template += line # + "\n"
+            line = ifile.readline()
+        template += "\t\t</staticmap>" #\n"
+    return template
+            
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__ + __version__, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('Config_backup',
+                        help="Path to dhcpd-config...xml backup.  If to dir then use most recent file.  If to file then use that specific file.")
+    parser.add_argument('CSV_master_list',
+                        help="Path to CSV master list file")
+    parser.add_argument('-v', '--verbose', action='count',
+                        help="Print status and activity messages.")
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + __version__,
+                        help="Return version number and exit.")
+
+    args = parser.parse_args()
+
+    logging.basicConfig(format='%(message)s')
+
+    if args.verbose is not None:
+        if args.verbose == 1:
+            logging.getLogger().setLevel(logging.INFO)
+        if args.verbose == 2:
+            logging.getLogger().setLevel(logging.DEBUG)
+
+    logging.info(__doc__ + __version__)
+
+    if os.path.isdir(args.Config_backup):
+        list_of_files = glob.glob(f'{args.Config_backup}/dhcpd-config*.xml')
+        in_config_file = max(list_of_files, key=os.path.getctime)
+    elif os.path.isfile(args.Config_backup):
+        in_config_file = args.Config_backup
+
+    if not os.path.exists(in_config_file):
+        logging.error(f"Error:  Input argument Config_backup {args.Config_backup} is not a valid path to a file or directory.")
+        sys.exit()
+
+    logging.info (f"Using config backup input file    <{in_config_file}>")
+
+    vnum = 1
+    while 1:
+        if os.path.exists(in_config_file + f"-csv{vnum}"):
+            vnum += 1
+        else:
+            break
+
+    out_config_file = in_config_file + f"-csv{vnum}"
+    logging.info (f"Using config backup output file   <{out_config_file}>")
+
+    if not os.path.exists(args.CSV_master_list):
+        logging.error(f"Error:  Input argument CSV_master_list {args.CSV_master_list} is not a valid file path.")
+        sys.exit()
+
+    logging.info (f"Using CSV master list input file  <{args.CSV_master_list}>")
+
+
+    main()
+    sys.exit()
