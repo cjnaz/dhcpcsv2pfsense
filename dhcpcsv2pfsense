@@ -2,13 +2,14 @@
 """Merge DHCP static assignments .csv data into pfSense DHCP Server config file.
 """
 
-__version__ = "V0.0 211007"
+__version__ = "V0.1 211009"
 
 
 #==========================================================
 #
 #  Chris Nelson, 2021
 #
+# V0.1 211009  Bug fix for row ignore based on first column blank.  Properly carry over the real postamble and block indentation.
 # V0.0 211007  New
 #
 # Changes pending
@@ -35,7 +36,7 @@ if py_version < PY_MIN_VERSION:
 
 def main():
 
-    staticmap_template = get_template()
+    staticmap_template, indent = get_template()
 
 
     with io.open(args.CSV_master_list, newline='', encoding="utf-8") as csvfile:
@@ -45,56 +46,70 @@ def main():
         valid_columns = []
         for colname in csv_table.fieldnames:
             if colname not in staticmap_template:
-                logging.warning(f"Warning:  CSV file column name {colname} not found in the <staticmap> template.  This column will be ignored.")
+                logging.info(f"Warning:  CSV file column name {colname} not found in the <staticmap> template.  This column will be ignored.")
             else:
                 valid_columns.append(colname)
 
         with io.open (in_config_file, "r", encoding="utf-8") as ifile:
             with io.open (out_config_file, "wt", encoding="utf-8") as ofile:
 
-                # Copy the backup file preamble
-                inline = ifile.readline()
-                while "<staticmap>" not in inline:
-                    ofile.write(inline)
-                    inline = ifile.readline()
+                # Copy the input backup file preamble up to the first <staticmap>
+                in_file_buf = ifile.read().split("\n")
+                for line in in_file_buf:
+                    if "<staticmap>" not in line:
+                        ofile.write(line + "\n")
+                    else:
+                        break
+
+                # Dispose of existing <staticmap> blocks and capture the file postamble
+                postamble = ""
+                for line in in_file_buf:
+                    if "</staticmap>" not in line:
+                        postamble += line  + "\n"
+                    else:
+                        postamble = ""
 
                 # Create <staticmap> blocks per the CSV rows
                 numrows = 0
                 for row in csv_table:
                     logging.debug(row)
 
-                    if row[valid_columns[0]] != "":  # Allow for blank rows
+                    if row[csv_table.fieldnames[0]] != "":  # Allow for blank rows
                         numrows += 1
                         temp_template = ""
                         for line in staticmap_template.split("\n"):
                             lineout = line + "\n"
                             for col in valid_columns:
                                 if f"<{col}>" in line:
-                                    lineout = f"\t\t\t<{col}>{row[col]}</{col}>\n"
+                                    lineout = f"{indent}\t<{col}>{row[col]}</{col}>\n"
                             temp_template += lineout
                         logging.debug(temp_template)
 
                         ofile.write(temp_template)
 
-                logging.info(f"Processed {numrows} DHCP static assignments.")
+                # Output the postamble
+                ofile.write(postamble)
 
-                # Output the tail end of the config file (hard coded)
-                ofile.write("\t</lan>\n</dhcpd>\n")
+                logging.info(f"Processed {numrows} DHCP static assignments.")
 
 
 def get_template():
-    """ Extract the <staticmap> template from the input .xml file.
+    """ Extract the first <staticmap> block as a template from the input .xml file.
+    Return 
+        The template block from the first <staticmap> to </staticmap>
+        The indentation string before <staticmap>
     """
     template = ""
     with io.open(in_config_file, "r", encoding="utf-8") as ifile:
         line = ifile.readline()
         while "<staticmap>" not in line:
             line = ifile.readline()
+        indentation = line[0:-len(line.lstrip())]
         while "</staticmap>" not in line:
-            template += line # + "\n"
+            template += line
             line = ifile.readline()
-        template += "\t\t</staticmap>" #\n"
-    return template
+        template += f"{indentation}</staticmap>"
+    return template, indentation
             
 
 if __name__ == '__main__':

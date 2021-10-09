@@ -25,12 +25,12 @@ optional arguments:
 ` `  
 ## Example run
 ```
-$ ./dhcpcsv2pfsense /mnt/Downloads dhcp_master_list.csv --verbose
+$ ./dhcpcsv2pfsense /mnt/Downloads DHCP_master_list.csv --verbose
 Merge DHCP static assignments .csv data into pfSense DHCP Server config file.
-V0.0 211007
+V0.1 211009
 Using config backup input file    </mnt/Downloads/dhcpd-config-pfSense.lan-20211006220611.xml>
 Using config backup output file   </mnt/Downloads/dhcpd-config-pfSense.lan-20211006220611.xml-csv1>
-Using CSV master list input file  <dhcp_master_list.csv>
+Using CSV master list input file  <DHCP_master_list.csv>
 Processed 22 DHCP static assignments.
 ```
 
@@ -59,21 +59,25 @@ Processed 22 DHCP static assignments.
 
 ` `  
 ## Additional Usage Notes
-- dhcpcsv2pfsense builds \<staticmap> bocks in the generated .xml file, one for each line in the .csv file.
-- At least one DHCP Static Mapping assignment within pfSense is needed so that the exported config backup has a \<staticmap> block for the script to pick up as a  template.  Create at least one static assignment before generating the backup file.
-The first existing \<staticmap> block is used as the template.  
+- dhcpcsv2pfsense builds \<staticmap> blocks in the generated .xml file, one for each line in the .csv file.
+- This script may also be run on a full backup file from pfSense.
+- At least one DHCP Static Mapping assignment within pfSense is needed so that the exported config backup has a \<staticmap> block for the script to pick up as a template.
+The first existing \<staticmap> block is used as the template. Create at least one static assignment before generating the backup file.
 - Field/column names in the .csv that match fields in the \<staticmap> template will overwrite the default values provided from the template.
 - You may add columns to the .csv to set values in other fields in the \<staticmap> structure, as needed.
 - The order of columns in the .csv file is not important.
-- Fields in the .csv that have no match in the \<staticmap> are ignored, with verbose mode warnings.  If the field names change in the pfSense backup and are inconsistent with your .csv file, the script will warn you (with the `--verbose` switch).
+- Columns in the .csv that have no match in the \<staticmap> are ignored, with verbose mode warnings.  If the field names change in the pfSense backup and are inconsistent with your .csv file, the script will warn you (with the `--verbose` switch).
 - Fields in the \<staticmap> with no matching column in the .csv are kept as in the template - usually blank / empty, with one known exception:  "ddnsdomainkeyalgorithm = hmac-md5".
-- Blank lines are permitted in the .csv file, with no output to the generated config file.  _A .csv line is taken as blank if the first column value is blank._
+- Blank lines are permitted in the .csv file, with no output to the generated config file.  _A .csv line is taken as blank if the first column value is blank._  The provided DHCP_master_list.csv file has the first column named `Active` which effectively allows rows to be commented out.
+- Double `--verbose` turns on debug level of detail.
 
 
 ` `  
 ## Known issues:
-- No error checks are performed on the correctness of your .csv file, such as valid IP or MAC addresses, or illegal characters in hostname, for example.  Missing or invalid cell values are taken verbatim.
+- No error checks are performed on the correctness of your .csv file, such as valid IP or MAC addresses, or illegal characters in hostname, for example.  Missing or invalid cell values are taken verbatim, and have unknown impact when loading back into pfSense.  Be careful.
+- A backup file .xml from pfSense may have some \<staticmap> fields (i.e. the \<descr> field) using `<![CDATA[]]>` wrappers around the field data.  This script does not generate CDATA wrappers.  The generated .xml file generally load fine without CDATA wrappers.  Be careful to **not** use xml markup in freeform text lines.  Please open an issue if this breaks.
 
 ` `  
 ## Version history
+- V0.1 211009  Bug fix for row ignore based on first column blank.  Properly carry over the real postamble and block indentation.
 - V0.0 211007  New
